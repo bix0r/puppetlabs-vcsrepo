@@ -6,6 +6,7 @@ Puppet::Type.type(:vcsrepo).provide(:svn, :parent => Puppet::Provider::Vcsrepo) 
   commands :svn      => 'svn',
            :svnadmin => 'svnadmin',
            :svnlook  => 'svnlook'
+  optional_commands :su  => 'su'
 
   has_features :filesystem_types, :reference_tracking, :basic_auth, :configuration
 
@@ -68,21 +69,21 @@ Puppet::Type.type(:vcsrepo).provide(:svn, :parent => Puppet::Provider::Vcsrepo) 
   def latest
     args = buildargs.push('info', '-r', 'HEAD')
     at_path do
-      svn(*args)[/^Revision:\s+(\d+)/m, 1]
+      svn_with_identity(*args)[/^Revision:\s+(\d+)/m, 1]
     end
   end
 
   def sourceurl
     args = buildargs.push('info')
     at_path do
-      svn(*args)[/^URL:\s+(\S+)/m, 1]
+      svn_with_identity(*args)[/^URL:\s+(\S+)/m, 1]
     end
   end
 
   def revision
     args = buildargs.push('info')
     at_path do
-      svn(*args)[/^Revision:\s+(\d+)/m, 1]
+      svn_with_identity(*args)[/^Revision:\s+(\d+)/m, 1]
     end
   end
 
@@ -93,7 +94,7 @@ Puppet::Type.type(:vcsrepo).provide(:svn, :parent => Puppet::Provider::Vcsrepo) 
              buildargs.push('update', '-r', desired)
            end
     at_path do
-      svn(*args)
+      svn_with_identity(*args)
     end
     update_owner
   end
@@ -106,7 +107,7 @@ Puppet::Type.type(:vcsrepo).provide(:svn, :parent => Puppet::Provider::Vcsrepo) 
       args.push('-r', revision)
     end
     args.push(source, path)
-    svn(*args)
+    svn_with_identity(*args)
   end
 
   def create_repository(path)
@@ -123,4 +124,16 @@ Puppet::Type.type(:vcsrepo).provide(:svn, :parent => Puppet::Provider::Vcsrepo) 
       set_ownership
     end
   end
+
+  # @!visibility private
+  def svn_with_identity(*args)
+    if @resource.value(:user) and @resource.value(:user) != Facter['id'].value
+      FileUtils.mkdir(@resource.value(:path))
+      FileUtils.chown(@resource.value(:user), nil, @resource.value(:path)) if @resource.value(:user)
+      su(@resource.value(:user), '-c', "SVN_SSH=\"ssh -l $USER -oStrictHostKeyChecking=no -oPasswordAuthentication=no -oKbdInteractiveAuthentication=no -oChallengeResponseAuthentication=no -oConnectTimeout=120\" svn #{args.join(' ')}" )
+    else
+      svn(*args)
+    end
+  end
+
 end
